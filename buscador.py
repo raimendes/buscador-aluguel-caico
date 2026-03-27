@@ -7,7 +7,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
-# Bairros de interesse em Caicó
+# Seus bairros de interesse em Caicó
 BAIRROS = ["Penedo", "Castelo Branco", "Nova Descoberta", "Maynard"]
 
 def enviar_telegram(mensagem):
@@ -17,16 +17,18 @@ def enviar_telegram(mensagem):
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         try:
             requests.post(url, data={"chat_id": chat_id, "text": mensagem, "parse_mode": "Markdown"})
+            print("Mensagem enviada para o Telegram!")
         except Exception as e:
-            print(f"Erro ao enviar Telegram: {e}")
+            print(f"Erro ao enviar para o Telegram: {e}")
 
 def buscar():
-    print("Iniciando busca em Caicó...")
+    print("Iniciando busca automatizada em Caicó...")
     options = Options()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     
     urls = [
@@ -38,38 +40,35 @@ def buscar():
     
     for url in urls:
         try:
-            print(f"Acessando: {url}")
+            print(f"Verificando site: {url}")
             driver.get(url)
             time.sleep(5)
-            # Scroll para carregar conteúdo dinâmico
+            # Scroll para carregar imóveis escondidos
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             time.sleep(3)
             
             soup = BeautifulSoup(driver.page_source, "html.parser")
-            # Busca todos os links da página
             links = soup.find_all("a", href=True)
             
             for l in links:
                 texto = l.get_text().lower()
                 href = l["href"]
-                # Verifica se o texto do link contém algum dos bairros
+                # Filtra pelos bairros escolhidos
                 if any(b.lower() in texto for b in BAIRROS):
                     if href not in encontrados and "http" in href:
                         encontrados.append(href)
-                        print(f"Achado: {href}")
+                        print(f"Imóvel encontrado no bairro: {texto.strip()[:30]}")
         except Exception as e:
             print(f"Erro ao processar {url}: {e}")
             continue
     
     driver.quit()
-    
+
     if encontrados:
-        # Pega os 5 primeiros para não lotar o Telegram
-        lista_links = "\n".join(encontrados[:5])
-        msg = f"🏠 *Novos imóveis em Caicó encontrados!*\n\n{lista_links}"
+        msg = "🏠 *Novos imóveis em Caicó encontrados!*\n\n" + "\n".join(encontrados[:5])
         enviar_telegram(msg)
     else:
-        print("Nenhum imóvel novo nos bairros selecionados hoje.")
+        print("Nenhum imóvel novo nos bairros Penedo, Maynard, Castelo Branco ou Nova Descoberta.")
 
 if __name__ == "__main__":
     buscar()
