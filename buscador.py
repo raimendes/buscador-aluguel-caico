@@ -1,6 +1,5 @@
 import os
 import time
-import json
 import requests
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -8,62 +7,69 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
-# --- CONFIGURAÇÕES ---
+# Bairros de interesse em Caicó
 BAIRROS = ["Penedo", "Castelo Branco", "Nova Descoberta", "Maynard"]
-ARQUIVO_VISTOS = "vistos.json"
-
-# Puxa os dados das "Secrets" do GitHub (Segurança)
-TOKEN = os.environ.get("TELEGRAM_TOKEN")
-CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 def enviar_telegram(mensagem):
-    if TOKEN and CHAT_ID:
-        url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-        data = {"chat_id": CHAT_ID, "text": mensagem, "parse_mode": "Markdown"}
-        requests.post(url, data=data)
+    token = os.environ.get("TELEGRAM_TOKEN")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    if token and chat_id:
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        try:
+            requests.post(url, data={"chat_id": chat_id, "text": mensagem, "parse_mode": "Markdown"})
+        except Exception as e:
+            print(f"Erro ao enviar Telegram: {e}")
 
-def carregar_vistos():
-    if os.path.exists(ARQUIVO_VISTOS):
-        with open(ARQUIVO_VISTOS, "r") as f:
-            return json.load(f)
-    return []
-
-def salvar_vistos(vistos):
-    with open(ARQUIVO_VISTOS, "w") as f:
-        json.dump(vistos, f)
-
-def configurar_browser():
+def buscar():
+    print("Iniciando busca em Caicó...")
     options = Options()
-    options.add_argument("--headless") # Essencial para o GitHub Actions
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
     
-    service = Service(ChromeDriverManager().install())
-    return webdriver.Chrome(service=service, options=options)
-
-def buscar_imoveis():
-    driver = configurar_browser()
-    vistos = carregar_vistos()
-    novos_links = []
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     
-    # Lista de alvos em Caicó
     urls = [
         "https://erikacorretora.com/todos-os-imoveis/",
         "https://rn.olx.com.br/rio-grande-do-norte/serido/caico/imoveis/aluguel"
     ]
 
+    encontrados = []
+    
     for url in urls:
         try:
-            print(f"Verificando: {url}")
+            print(f"Acessando: {url}")
             driver.get(url)
             time.sleep(5)
+            # Scroll para carregar conteúdo dinâmico
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(3)
             
-            # Rolar a página 3 vezes para carregar o 'Infinite Scroll'
-            for _ in range(3):
-                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                time.sleep(3)
-
             soup = BeautifulSoup(driver.page_source, "html.parser")
-            # Busca todos os links que possam ser de imóveis
-            links = soup.find_
+            # Busca todos os links da página
+            links = soup.find_all("a", href=True)
+            
+            for l in links:
+                texto = l.get_text().lower()
+                href = l["href"]
+                # Verifica se o texto do link contém algum dos bairros
+                if any(b.lower() in texto for b in BAIRROS):
+                    if href not in encontrados and "http" in href:
+                        encontrados.append(href)
+                        print(f"Achado: {href}")
+        except Exception as e:
+            print(f"Erro ao processar {url}: {e}")
+            continue
+    
+    driver.quit()
+    
+    if encontrados:
+        # Pega os 5 primeiros para não lotar o Telegram
+        lista_links = "\n".join(encontrados[:5])
+        msg = f"🏠 *Novos imóveis em Caicó encontrados!*\n\n{lista_links}"
+        enviar_telegram(msg)
+    else:
+        print("Nenhum imóvel novo nos bairros selecionados hoje.")
+
+if __name__ == "__main__":
+    buscar()
